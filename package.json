@@ -1,0 +1,16 @@
+{
+  "name": "hydrowork",
+  "private": true,
+  "version": "0.1.0",
+  "description": "HydroWork - quản lý nội bộ Phân xưởng sửa chữa",
+  "workspaces": ["client", "server"],
+  "overrides": { "uuid": "^11.1.1" },
+  "scripts": {
+    "dev": "concurrently -k \"npm:dev:server\" \"npm:dev:client\"",
+    "dev:server": "npm --prefix server run dev",
+    "dev:client": "npm --prefix client run dev",
+    "build": "npm --prefix server run build && npm --prefix client run build",
+    "seed": "npm --prefix server run seed"
+  },
+  "devDependencies": { "concurrently": "^9.1.2" }
+}

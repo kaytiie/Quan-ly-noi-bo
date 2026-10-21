@@ -1,0 +1,19 @@
+import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import { Plus, Search, Users } from 'lucide-react';
+import { request } from '../api/http';
+import { useAuth } from '../auth/AuthContext';
+
+type Employee = { _id: string; fullName: string; title: string; team?: { _id: string; name: string } | null; status: 'active' | 'inactive'; phone: string; user?: { email: string; role: string } | null };
+type Team = { _id: string; name: string };
+export function EmployeesPage() {
+  const { user } = useAuth();
+  const [rows, setRows] = useState<Employee[]>([]); const [teams, setTeams] = useState<Team[]>([]);
+  const [query, setQuery] = useState(''); const [error, setError] = useState(''); const [loading, setLoading] = useState(true); const [showForm, setShowForm] = useState(false);
+  const canEdit = user?.role === 'admin' || user?.role === 'manager';
+  const load = useCallback(async () => { setLoading(true); setError(''); try { const [a, b] = await Promise.all([request<{ employees: Employee[] }>(`/employees${query ? `?q=${encodeURIComponent(query)}` : ''}`), request<{ teams: Team[] }>('/teams')]); setRows(a.employees); setTeams(b.teams); } catch (e) { setError(e instanceof Error ? e.message : 'Không tải được danh sách.'); } finally { setLoading(false); } }, [query]);
+  useEffect(() => { void load(); }, [load]);
+  async function create(event: FormEvent<HTMLFormElement>) { event.preventDefault(); const data = new FormData(event.currentTarget); try { await request('/employees', { method: 'POST', body: JSON.stringify({ fullName: data.get('fullName'), title: data.get('title'), team: data.get('team') || null, phone: data.get('phone') || '' }) }); setShowForm(false); await load(); } catch (e) { setError(e instanceof Error ? e.message : 'Không thể lưu nhân sự.'); } }
+  return <div className="page-wrap"><div className="page-heading"><div><div className="eyebrow">DANH MỤC</div><h1>Nhân sự</h1><p>Danh sách nhân sự Phân xưởng sửa chữa.</p></div>{canEdit && <button className="primary-button" onClick={() => setShowForm(!showForm)}><Plus size={18} />Thêm nhân sự</button>}</div>
+    {showForm && <section className="panel form-panel"><h2>Thêm nhân sự</h2><form className="inline-form" onSubmit={create}><label>Họ và tên *<input name="fullName" required minLength={2} /></label><label>Chức danh *<input name="title" required minLength={2} /></label><label>Tổ công tác<select name="team"><option value="">Không thuộc tổ</option>{teams.map(t => <option key={t._id} value={t._id}>{t.name}</option>)}</select></label><label>Điện thoại<input name="phone" /></label><div className="form-actions"><button type="button" className="secondary-button" onClick={() => setShowForm(false)}>Hủy</button><button className="primary-button">Lưu nhân sự</button></div></form></section>}
+    <section className="panel"><div className="toolbar"><div className="search-field"><Search size={18} /><input aria-label="Tìm theo tên" placeholder="Tìm theo họ tên…" value={query} onChange={e => setQuery(e.target.value)} /></div><span className="result-count">{rows.length} nhân sự</span></div>{error && <div className="alert error">{error}</div>}{loading ? <div className="empty-state">Đang tải danh sách…</div> : rows.length === 0 ? <div className="empty-state"><Users /><strong>Chưa có nhân sự</strong><span>Thêm nhân sự để bắt đầu quản lý danh sách.</span></div> : <div className="table-scroll"><table><thead><tr><th>Họ và tên</th><th>Chức danh</th><th>Tổ công tác</th><th>Liên hệ</th><th>Tài khoản</th><th>Trạng thái</th></tr></thead><tbody>{rows.map(row => <tr key={row._id}><td><strong>{row.fullName}</strong></td><td>{row.title}</td><td>{row.team?.name || '—'}</td><td>{row.phone || '—'}</td><td>{row.user?.email || 'Chưa liên kết'}</td><td><span className={`status-badge ${row.status}`}>{row.status === 'active' ? 'Đang làm việc' : 'Không còn hoạt động'}</span></td></tr>)}</tbody></table></div>}</section></div>;
+}

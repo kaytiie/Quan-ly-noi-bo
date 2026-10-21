@@ -1,0 +1,39 @@
+import { useEffect, useState } from 'react';
+import { Link, useParams } from 'react-router-dom';
+import { ArrowLeft, CalendarClock, CheckCircle2, ClipboardList, Download, RotateCcw, UserPlus, Wrench } from 'lucide-react';
+import { request, type DefectAttachment, type DefectLog, type DefectTicket, formatDateTime, statusClass, statusLabels } from '../api/defects';
+import { useAuth } from '../auth/AuthContext';
+
+type Detail = { ticket: DefectTicket; logs: DefectLog[]; attachments: DefectAttachment[]; similar: DefectTicket[] };
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000/api';
+const actionLabels: Record<string, string> = { created: 'Phiếu được tạo', assigned: 'Đã tiếp nhận và phân công', progress: 'Cập nhật tiến độ', status: 'Thay đổi trạng thái', acceptance: 'Nghiệm thu', attachment: 'Tệp đính kèm' };
+export function DefectDetailPage() {
+  const { id = '' } = useParams(); const { user } = useAuth();
+  const [data, setData] = useState<Detail | null>(null); const [loading, setLoading] = useState(true); const [error, setError] = useState('');
+  useEffect(() => { request<Detail>(`/defects/${id}`).then(setData).catch(e => setError(e instanceof Error ? e.message : 'Không tải được phiếu.')).finally(() => setLoading(false)); }, [id]);
+  if (loading) return <div className="page-wrap"><section className="panel empty-state">Đang tải phiếu…</section></div>;
+  if (error || !data) return <div className="page-wrap"><section className="panel"><div className="alert error">{error || 'Không tìm thấy phiếu.'}</div><Link to="/khiem-khuyet" className="secondary-button button-link">Quay lại danh sách</Link></section></div>;
+  const { ticket, logs, attachments, similar } = data;
+  const manager = user?.role === 'admin' || user?.role === 'manager';
+  const isWorker = !!user && (manager || ticket.assignee?._id === user.id || ticket.collaborators?.some(person => person._id === user.id));
+  async function cancel() {
+    const reason = window.prompt('Lý do hủy phiếu:');
+    if (!reason || !window.confirm('Xác nhận hủy phiếu này?')) return;
+    try { await request(`/defects/${ticket._id}/cancel`, { method: 'POST', body: JSON.stringify({ reason }) }); window.location.reload(); }
+    catch (e) { setError(e instanceof Error ? e.message : 'Không thể hủy phiếu.'); }
+  }
+  async function reject() {
+    const reason = window.prompt('Lý do từ chối tiếp nhận:');
+    if (!reason) return;
+    try { await request(`/defects/${ticket._id}/reject`, { method: 'POST', body: JSON.stringify({ reason }) }); window.location.reload(); }
+    catch (e) { setError(e instanceof Error ? e.message : 'Không thể từ chối phiếu.'); }
+  }
+  return <div className="page-wrap"><div className="page-heading"><div><div className="eyebrow">CHI TIẾT KHIẾM KHUYẾT</div><h1>{ticket.code}</h1><p>{ticket.title}</p></div><Link to="/khiem-khuyet" className="secondary-button button-link"><ArrowLeft size={17} />Danh sách phiếu</Link></div>
+    {error && <div className="alert error">{error}</div>}
+    <section className="panel ticket-summary"><div><span className={`status-badge ticket-status ${statusClass[ticket.status]}`}>{statusLabels[ticket.status]}</span>{ticket.dueAt && <span className="due-hint"><CalendarClock size={15} /> Hạn xử lý {formatDateTime(ticket.dueAt)}</span>}<h2>{ticket.title}</h2><p>{ticket.description}</p>{ticket.temporaryMeasure && <div className="measure-note"><strong>Biện pháp tạm thời</strong><span>{ticket.temporaryMeasure}</span></div>}</div><div className="ticket-actions">{manager && ticket.status === 'new' && <><Link className="primary-button button-link" to={`/khiem-khuyet/${ticket._id}/phan-cong`}><UserPlus size={17} />Tiếp nhận / phân công</Link><button className="secondary-button" onClick={reject}>Từ chối tiếp nhận</button></>}{manager && ticket.status === 'awaiting_acceptance' && <Link className="primary-button button-link" to={`/khiem-khuyet/${ticket._id}/nghiem-thu`}><CheckCircle2 size={17} />Nghiệm thu</Link>}{isWorker && ['accepted', 'in_progress', 'waiting_material', 'paused', 'needs_rework'].includes(ticket.status) && <Link className="primary-button button-link" to={`/khiem-khuyet/${ticket._id}/cap-nhat`}><Wrench size={17} />Cập nhật tiến độ</Link>}{user && ticket.status === 'new' && (manager || ticket.createdBy?._id === user.id) && <button className="secondary-button danger-button" onClick={cancel}>Hủy phiếu</button>}</div></section>
+    <div className="detail-grid"><section className="panel"><div className="panel-title"><ClipboardList size={19} /><h2>Thông tin phiếu</h2></div><dl className="detail-list"><div><dt>Người phát hiện</dt><dd>{ticket.reporterName}</dd></div><div><dt>Ngày giờ phát hiện</dt><dd>{formatDateTime(ticket.detectedAt)}</dd></div><div><dt>Nhà máy</dt><dd>{ticket.plant?.code} · {ticket.plant?.name}</dd></div><div><dt>Hệ thống</dt><dd>{ticket.system?.name}</dd></div><div><dt>Thiết bị</dt><dd><Link to={`/thiet-bi/${ticket.equipment?._id}`}>{ticket.equipment?.code} · {ticket.equipment?.name}</Link></dd></div><div><dt>Mức độ ưu tiên</dt><dd><span className="priority-text" style={{ color: ticket.priority?.color }}>{ticket.priority?.name}</span></dd></div><div><dt>Tổ xử lý</dt><dd>{ticket.assignedTeam?.name || 'Chưa phân công'}</dd></div><div><dt>Người phụ trách</dt><dd>{ticket.assignee?.employee?.fullName || ticket.assignee?.email || 'Chưa phân công'}</dd></div></dl></section>
+      <section className="panel"><div className="panel-title"><CalendarClock size={19} /><h2>Lịch sử xử lý</h2></div>{logs.length === 0 ? <div className="empty-state">Chưa có cập nhật.</div> : <div className="timeline">{logs.map(log => <article className="timeline-item" key={log._id}><span className="timeline-dot" /><div className="timeline-meta"><strong>{actionLabels[log.action] || log.action}</strong><time>{formatDateTime(log.createdAt)}</time></div><div className="timeline-actor">{log.actor?.employee?.fullName || 'Người dùng hệ thống'}</div>{log.toStatus && <div className="timeline-status">{log.fromStatus ? `${statusLabels[log.fromStatus]} → ` : ''}{statusLabels[log.toStatus]}</div>}{log.note && <p>{log.note}</p>}{log.rootCause && <p><strong>Nguyên nhân:</strong> {log.rootCause}</p>}{log.correctiveAction && <p><strong>Phương án khắc phục:</strong> {log.correctiveAction}</p>}{log.workDone && <p><strong>Đã thực hiện:</strong> {log.workDone}</p>}{log.materials?.length ? <p><strong>Vật tư:</strong> {log.materials.map(m => `${m.name} ${m.quantity} ${m.unit}`).join(', ')}</p> : null}{attachments.filter(file => file.log === log._id).map(file => user ? <a key={file._id} className="timeline-file" href={`${API_URL}/defects/attachments/${file._id}`}>{file.originalName}</a> : <Link key={file._id} className="timeline-file" to="/dang-nhap">{file.originalName} · Đăng nhập để tải</Link>)}</article>)}</div>}</section></div>
+    <section className="panel attachment-panel"><div className="panel-title"><Download size={18} /><h2>Tệp đính kèm</h2></div>{attachments.length ? <div className="attachment-list">{attachments.map(file => user ? <a key={file._id} href={`${API_URL}/defects/attachments/${file._id}`} className="attachment-item"><span>{file.originalName}</span><small>{(file.size / 1024).toFixed(0)} KB</small></a> : <Link key={file._id} to="/dang-nhap" className="attachment-item"><span>{file.originalName}</span><small>Đăng nhập để tải xuống</small></Link>)}</div> : <p className="muted-text">Chưa có tệp đính kèm.</p>}</section>
+    {similar.length > 0 && <section className="panel"><div className="panel-title"><RotateCcw size={18} /><h2>Phiếu khác trên cùng thiết bị</h2></div><div className="similar-inline">{similar.map(item => <Link key={item._id} to={`/khiem-khuyet/${item._id}`}><strong>{item.code}</strong><span>{formatDateTime(item.detectedAt)} · {item.title}</span></Link>)}</div></section>}
+  </div>;
+}
